@@ -1073,3 +1073,70 @@ kbd {
     font-size: 13px;
   }
 }
+
+/* AI provider settings */
+
+.ai-section {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.ai-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.badge.ok {
+  background: color-mix(in srgb, var(--good) 18%, transparent);
+  color: var(--good);
+}
+
+.badge.off {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.setup-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.code-row code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: var(--surface-2);
+}

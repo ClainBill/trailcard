@@ -1,7 +1,7 @@
 import { get, set, getSettings, saveSettings, getNotes, saveNote, deleteNote, DEFAULT_SETTINGS } from './lib/store.js';
 import { schedule, previewIntervals, formatInterval } from './lib/fsrs.js';
 import { pickQuestion, recordAnswer, substitute, isMastered, applyGrowth, MAX_GROWTHS } from './lib/cards.js';
-import { MODELS, growCard } from './lib/ai.js';
+import { MODELS, PROVIDERS, OLLAMA_URL, growCard, chromeAIStatus, downloadChromeAI, ollamaStatus, resolveProvider } from './lib/ai.js';
 import { renderEditor } from './lib/editor.js';
 import { h, dueText, toDataUrl } from './lib/dom.js';
 import { hostOf } from './lib/trail.js';
@@ -27,12 +27,12 @@ function toast(message) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 6000);
 }
 
-// Asks Claude for more questions and appends them. Re-reads the note before
+// Asks the AI for more questions and appends them. Re-reads the note before
 // saving so a review graded in the meantime is not overwritten.
 async function grow(noteId) {
   const settings = await getSettings();
   const find = async () => (await getNotes()).find((n) => n.id === noteId);
-  const out = await growCard({ settings, note: await find() });
+  const { out } = await growCard({ settings, note: await find() });
   const fresh = await find();
   if (!fresh) return { added: 0 };
   const result = applyGrowth(fresh, out);
@@ -45,7 +45,7 @@ const RETRY_GROW_AFTER = 24 * 3600_000;
 function shouldAutoGrow(note, settings, now) {
   return (
     settings.autoGrow &&
-    settings.apiKey &&
+    settings.provider !== 'none' &&
     (note.grown || 0) < MAX_GROWTHS &&
     now - (note.growTried || 0) > RETRY_GROW_AFTER &&
     isMastered(note)
@@ -154,7 +154,7 @@ async function review({ ahead = false, id } = {}) {
         // Runs in the background; the review carries on.
         grow(next.id).then(
           ({ added }) => added && toast(`Mastered “${next.title}”. Added ${added} new ${added === 1 ? 'question' : 'questions'}; it comes back tomorrow.`),
-          (e) => toast(`Could not add questions to “${next.title}”: ${e.message}`)
+          (e) => e.kind !== 'no-ai' && toast(`Could not add questions to “${next.title}”: ${e.message}`)
         );
       }
       Object.assign(all.find((n) => n.id === note.id) || {}, next);
@@ -331,7 +331,7 @@ async function library() {
               {
                 class: 'btn small',
                 disabled: growingId === n.id,
-                title: 'Ask Claude for up to 3 more questions on this topic (one API request)',
+                title: 'Ask the AI for up to 3 more questions on this topic',
                 onclick: async () => {
                   growingId = n.id;
                   renderList();
@@ -340,7 +340,7 @@ async function library() {
                     if (added) notes = notes.map((x) => (x.id === n.id ? note : x));
                     toast(added ? `Added ${added} new ${added === 1 ? 'question' : 'questions'}.` : 'Claude had nothing solid to add to this card.');
                   } catch (e) {
-                    toast(e.kind === 'no-key' ? 'Add a Claude API key in Settings first.' : e.message);
+                    toast(e.kind === 'no-ai' || e.kind === 'off' ? 'Set up an AI option in Settings first.' : e.message);
                   }
                   growingId = null;
                   renderList();
@@ -457,34 +457,124 @@ async function settings() {
     }
   }
 
+  // ----- AI provider section -----
+  const aiSection = h('div', { class: 'ai-section' });
+  const extId = globalThis.chrome?.runtime?.id || '<extension id>';
+  const code = (text) =>
+    h('div', { class: 'code-row' }, h('code', null, text), h('button', { class: 'btn small', onclick: () => navigator.clipboard?.writeText(text).then(() => (status.textContent = 'Copied')) }, 'Copy'));
+  const badge = (ok, text) => h('span', { class: 'badge ' + (ok ? 'ok' : 'off') }, text);
+
+  async function renderAI() {
+    const [chrome, ollama, active] = await Promise.all([chromeAIStatus(), ollamaStatus(s.ollamaUrl || OLLAMA_URL), resolveProvider(s)]);
+    const p = s.provider || 'auto';
+
+    const chromeCard = h(
+      'div',
+      { class: 'ai-card' },
+      h('div', { class: 'ai-card-head' }, h('b', null, 'Chrome built-in AI'), badge(chrome === 'available', { available: 'Ready', downloadable: 'Needs download', downloading: 'Downloading', unavailable: 'Not supported here', unsupported: 'Not in this Chrome' }[chrome])),
+      h('p', { class: 'hint' }, 'Free and private: a small model that Chrome runs on your computer. No install, but it needs a capable machine (Google lists 16 GB of RAM, or a graphics chip with more than 4 GB, plus 22 GB of free disk).'),
+      chrome === 'downloadable' || chrome === 'downloading'
+        ? h(
+            'div',
+            { class: 'row' },
+            h(
+              'button',
+              {
+                class: 'btn small primary',
+                onclick: async (e) => {
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  btn.textContent = 'Starting download…';
+                  try {
+                    await downloadChromeAI((f) => (btn.textContent = `Downloading… ${Math.round(f * 100)}%`));
+                    renderAI();
+                  } catch (err) {
+                    btn.textContent = 'Download failed: ' + (err?.message || err);
+                  }
+                },
+              },
+              chrome === 'downloading' ? 'Resume download' : 'Download the model (one-off, a few GB)'
+            )
+          )
+        : chrome === 'unavailable' || chrome === 'unsupported'
+          ? h('p', { class: 'hint' }, 'This computer or Chrome version can’t run it. Use Ollama below instead.')
+          : null
+    );
+
+    const ollamaBody = !ollama.running
+      ? [
+          h('p', { class: 'hint' }, 'Free and private: a model that runs on your computer through the Ollama app. One-time setup, about five minutes:'),
+          h(
+            'ol',
+            { class: 'setup-steps' },
+            h('li', null, 'Install Ollama from ', h('a', { href: 'https://ollama.com/download', target: '_blank', rel: 'noreferrer' }, 'ollama.com/download'), ' and open it.'),
+            h('li', null, 'In Terminal, allow Trailcard to talk to it, then quit and reopen Ollama:', code(`launchctl setenv OLLAMA_ORIGINS "chrome-extension://${extId}"`)),
+            h('li', null, 'Download a small model (about 3 GB):', code('ollama pull gemma3:4b')),
+            h('li', null, 'Come back here and click Check again.')
+          ),
+        ]
+      : ollama.origin === false
+        ? [
+            h('p', { class: 'hint' }, 'Ollama is running but is blocking Trailcard. Run this in Terminal, then quit and reopen Ollama:'),
+            code(`launchctl setenv OLLAMA_ORIGINS "chrome-extension://${extId}"`),
+          ]
+        : !ollama.models.length
+          ? [h('p', { class: 'hint' }, 'Ollama is running but has no models. Download a small one in Terminal (about 3 GB):'), code('ollama pull gemma3:4b')]
+          : [
+              h('p', { class: 'hint' }, 'Free and private. Pick which installed model drafts your cards; bigger models write better cards but are slower.'),
+              h(
+                'select',
+                { class: 'input', 'aria-label': 'Ollama model', onchange: (e) => save({ ollamaModel: e.target.value }) },
+                ollama.models.map((m) => h('option', { value: m, selected: m === (ollama.models.includes(s.ollamaModel) ? s.ollamaModel : ollama.models[0]) }, m))
+              ),
+            ];
+    const ollamaReady = ollama.running && ollama.origin !== false && ollama.models.length > 0;
+    const ollamaCard = h(
+      'div',
+      { class: 'ai-card' },
+      h('div', { class: 'ai-card-head' }, h('b', null, 'Ollama on this computer'), badge(ollamaReady, ollamaReady ? 'Ready' : !ollama.running ? 'Not running' : ollama.origin === false ? 'Blocked' : 'No model')),
+      ollamaBody
+    );
+
+    const claudeCard = h(
+      'div',
+      { class: 'ai-card' },
+      h('div', { class: 'ai-card-head' }, h('b', null, 'Claude API'), badge(!!s.apiKey, s.apiKey ? 'Key added' : 'No key')),
+      h('p', { class: 'hint' }, 'The best cards, but paid: each card is one request billed to your Anthropic account. Only used when you pick it above.'),
+      h('input', { class: 'input', type: 'password', value: s.apiKey, placeholder: 'Claude API key (sk-ant-…)', 'aria-label': 'Claude API key', autocomplete: 'off', onchange: (e) => save({ apiKey: e.target.value.trim() }).then(renderAI) }),
+      h('select', { class: 'input', 'aria-label': 'Claude model', onchange: (e) => save({ model: e.target.value }) }, MODELS.map((m) => h('option', { value: m.id, selected: m.id === s.model }, m.label)))
+    );
+
+    const activeText = active
+      ? `New cards are drafted by ${{ chrome: 'Chrome’s built-in AI (free)', ollama: 'Ollama (free)', claude: 'Claude (paid)' }[active]}.`
+      : p === 'none'
+        ? 'AI drafting is off: new cards are basic cards from the page.'
+        : p === 'auto'
+          ? 'No free AI is set up yet, so new cards are basic cards from the page. Set one up below.'
+          : 'The option you picked isn’t ready yet; until it is, new cards are basic cards from the page.';
+
+    aiSection.replaceChildren(
+      row(
+        'Who drafts your cards',
+        'Automatic uses whichever free option below is ready and never the paid one.',
+        h('select', { class: 'input', onchange: (e) => save({ provider: e.target.value }).then(renderAI) }, PROVIDERS.map((o) => h('option', { value: o.id, selected: o.id === p }, o.label)))
+      ),
+      h('div', { class: 'notice ai-active', role: 'status' }, activeText, ' ', h('button', { class: 'link', onclick: renderAI }, 'Check again')),
+      chromeCard,
+      ollamaCard,
+      claudeCard
+    );
+  }
+  renderAI();
+
   view.replaceChildren(
     h(
       'div',
       { class: 'page' },
       h('div', { class: 'section-head' }, h('h1', null, 'Settings'), status),
 
-      h('h2', null, 'Card generation'),
-      row(
-        'Claude API key',
-        'Stored only in this browser and sent only to api.anthropic.com.',
-        h('input', {
-          class: 'input',
-          type: 'password',
-          value: s.apiKey,
-          placeholder: 'sk-ant-…',
-          autocomplete: 'off',
-          onchange: (e) => save({ apiKey: e.target.value.trim() }),
-        })
-      ),
-      row(
-        'Model',
-        'Which Claude model reads your trail and drafts the card.',
-        h(
-          'select',
-          { class: 'input', onchange: (e) => save({ model: e.target.value }) },
-          MODELS.map((m) => h('option', { value: m.id, selected: m.id === s.model }, m.label))
-        )
-      ),
+      h('h2', null, 'Card drafting'),
+      aiSection,
       row(
         'Context window',
         'How far back in your trail to look when building a card.',
@@ -502,7 +592,7 @@ async function settings() {
       ),
       row(
         'Grow cards automatically',
-        `When you have answered every question on a card correctly, Claude adds up to 3 new ones on the same topic. Each time is one API request, at most ${MAX_GROWTHS} times per card.`,
+        `When you have answered every question on a card correctly, the AI adds up to 3 new ones on the same topic, at most ${MAX_GROWTHS} times per card. Free with a free AI option; one paid request each time with Claude.`,
         h('input', { type: 'checkbox', checked: s.autoGrow, onchange: (e) => save({ autoGrow: e.target.checked }) })
       ),
 

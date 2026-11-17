@@ -1,6 +1,6 @@
 import { EXT, get, getSettings, saveSettings, getNotes, saveNote, onStoreChange } from './lib/store.js';
 import { selectTrail, trailForPrompt, isTrackable, hostOf } from './lib/trail.js';
-import { suggestCard } from './lib/ai.js';
+import { suggestCard, providerName } from './lib/ai.js';
 import { draftFromAI, heuristicDraft, noteFromDraft } from './lib/cards.js';
 import { extractPage } from './lib/extract.js';
 import { renderEditor } from './lib/editor.js';
@@ -134,7 +134,7 @@ async function home(message) {
         : trail.length
           ? h('ul', { class: 'trail' }, trail.map(trailItem))
           : h('p', { class: 'hint' }, 'Nothing yet. Search for something or open a page and it will show up here.'),
-      h('p', { class: 'hint privacy' }, 'Your trail stays on this device and clears after 24 hours. It is only sent to Claude when you click Create Flashcard.')
+      h('p', { class: 'hint privacy' }, 'Your trail stays on this device and clears after 24 hours. It is only read when you click Create Flashcard, and with a free AI option it never leaves your computer.')
     )
   );
 }
@@ -210,24 +210,31 @@ async function create(hint, highlight) {
     return problem(e.message || 'Could not read this page.');
   }
 
+  let via = '';
   try {
     let out;
-    if (!EXT && !settings.apiKey) {
+    if (!EXT) {
       await new Promise((r) => setTimeout(r, 500));
       out = demoSuggestion;
     } else {
       loading(hint ? 'Rethinking the card…' : ctx.fromSelection ? 'Building a card from your highlight…' : 'Working out what you want to remember…');
-      out = await suggestCard({ settings, ...ctx, hint });
+      const result = await suggestCard({ settings, ...ctx, hint });
+      out = result.out;
+      via = providerName(result.provider);
     }
     draft = draftFromAI(out, ctx.images);
+    // A small model can return something with nothing usable in it.
+    if (!draft.fields.some((f) => f.type === 'text')) throw Object.assign(new Error('The AI’s draft came back empty.'), { kind: 'empty' });
   } catch (e) {
     draft = heuristicDraft(ctx.page, ctx.trail, ctx.images);
     notice =
-      e.kind === 'no-key'
-        ? 'Add a Claude API key in Settings to get cards built from your whole trail. This one is a basic card from the page.'
-        : `${e.message} Here is a basic card from the page instead.`;
+      e.kind === 'off'
+        ? ''
+        : e.kind === 'no-ai'
+          ? 'No free AI is set up on this computer yet, so this is a basic card from the page. Settings shows how to add one in a few minutes.'
+          : `${e.message} Here is a basic card from the page instead.`;
   }
-  editor(draft, notice);
+  editor(draft, notice, via);
 }
 
 function problem(message) {
@@ -237,11 +244,12 @@ function problem(message) {
   );
 }
 
-function editor(draft, notice) {
+function editor(draft, notice, via) {
   screen = 'editor';
   const mount = h('div');
   view.replaceChildren(
     h('h2', { class: 'screen-title' }, 'New flashcard'),
+    via && !notice && h('p', { class: 'hint' }, `Drafted by ${via}.`),
     notice &&
       h(
         'div',

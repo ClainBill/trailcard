@@ -148,3 +148,26 @@ test('growth appends fields and questions without disturbing existing stats', ()
   assert.equal(isMastered(grown), false);
   assert.equal(applyGrowth(note, { new_fields: [], questions: [] }, NOW).added, 0);
 });
+
+test('every fact in an AI draft gets a question, even if the model skipped it', () => {
+  const out = {
+    title: 'Mitochondria',
+    fields: [
+      { key: 'makes', label: 'What do mitochondria generate?', type: 'text', value: 'ATP', image_index: -1 },
+      { key: 'found', label: 'First seen in', type: 'text', value: 'insect muscle', image_index: -1 },
+      { key: 'year', label: 'Year discovered', type: 'text', value: '1857', image_index: -1 },
+    ],
+    questions: [{ prompt: 'What do mitochondria generate?', answer_keys: ['makes'], cue_keys: [] }],
+  };
+  const draft = draftFromAI(out, []);
+  const answered = draft.questions.map((q) => q.answerKeys[0]).sort();
+  assert.deepEqual(answered, ['found', 'makes', 'year']);
+  assert.equal(draft.questions.filter((q) => q.answerKeys[0] === 'makes').length, 1);
+  assert.ok(draft.questions.some((q) => q.prompt === 'What is the year discovered?'));
+  assert.ok(draft.fields.every((f) => !('added' in f)));
+});
+
+test('a label phrased as a question becomes the default prompt', () => {
+  const draft = draftFromAI({ title: 'x', fields: [{ key: 'a', label: 'Who wrote it?', type: 'text', value: 'Austen', image_index: -1 }], questions: [] }, []);
+  assert.equal(draft.questions[0].prompt, 'Who wrote it?');
+});
