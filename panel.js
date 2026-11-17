@@ -141,14 +141,14 @@ async function home(message) {
 
 // ---------- Create ----------
 
-async function gatherContext() {
+async function gatherContext(tabId) {
   const settings = await getSettings();
   if (!EXT) {
     const demo = demoContext();
     return finishContext(settings, demo.events, demo.page);
   }
   // ?tab=<id> pins the panel to a tab, for when it is opened as an ordinary page (tests).
-  const pinned = Number(new URLSearchParams(location.search).get('tab'));
+  const pinned = tabId || Number(new URLSearchParams(location.search).get('tab'));
   const [tab] = pinned ? [await chrome.tabs.get(pinned)] : await chrome.tabs.query({ active: true, currentWindow: true });
   const events = await loadEvents(true);
   const readable = tab?.url && /^https?:/.test(tab.url);
@@ -191,13 +191,20 @@ function loading(message) {
   );
 }
 
-async function create(hint) {
-  loading(hint ? 'Rethinking the card…' : 'Reading your trail…');
+// highlight: { tabId, text } when the card was started from highlighted text.
+async function create(hint, highlight) {
+  loading(hint ? 'Rethinking the card…' : highlight ? 'Reading your highlight…' : 'Reading your trail…');
   const settings = await getSettings();
   let draft;
   let notice = '';
   try {
-    if (!ctx || hint === undefined) ctx = await gatherContext();
+    if (!ctx || hint === undefined) {
+      ctx = await gatherContext(highlight?.tabId);
+      if (highlight) {
+        ctx.page.selection = highlight.text;
+        ctx.fromSelection = true;
+      }
+    }
   } catch (e) {
     ctx = null;
     return problem(e.message || 'Could not read this page.');
@@ -209,7 +216,7 @@ async function create(hint) {
       await new Promise((r) => setTimeout(r, 500));
       out = demoSuggestion;
     } else {
-      loading(hint ? 'Rethinking the card…' : 'Working out what you want to remember…');
+      loading(hint ? 'Rethinking the card…' : ctx.fromSelection ? 'Building a card from your highlight…' : 'Working out what you want to remember…');
       out = await suggestCard({ settings, ...ctx, hint });
     }
     draft = draftFromAI(out, ctx.images);
@@ -276,4 +283,28 @@ onStoreChange(() => {
   refresh = setTimeout(() => screen === 'home' && home(), 400);
 });
 
-home();
+// A highlight sent from a page (the Flashcard chip or the right-click menu).
+async function checkPending() {
+  if (!EXT) return false;
+  const { pending } = await chrome.storage.session.get('pending');
+  if (!pending) return false;
+  // With several windows open, only the panel in the highlight's own window takes it.
+  try {
+    const [tab, win] = await Promise.all([chrome.tabs.get(pending.tabId), chrome.windows.getCurrent()]);
+    if (tab.windowId !== win.id) return false;
+  } catch {
+    /* the tab is gone; fall through and clear the stale highlight */
+  }
+  await chrome.storage.session.remove('pending');
+  if (Date.now() - pending.ts > 60_000) return false;
+  create(undefined, pending);
+  return true;
+}
+
+if (EXT) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'session' && changes.pending?.newValue) checkPending();
+  });
+}
+
+checkPending().then((started) => started || home());

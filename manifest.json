@@ -3,7 +3,7 @@
   "name": "Trailcard",
   "version": "0.1.0",
   "description": "Turn what you just looked up into spaced-repetition flashcards, built from your browsing trail.",
-  "permissions": ["storage", "unlimitedStorage", "tabs", "scripting", "sidePanel", "alarms"],
+  "permissions": ["storage", "unlimitedStorage", "tabs", "scripting", "sidePanel", "alarms", "contextMenus"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_title": "Trailcard: create a flashcard" },

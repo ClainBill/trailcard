@@ -496,6 +496,11 @@ async function settings() {
       ),
 
       row(
+        'Flashcard button on highlighted text',
+        'Shows a small Flashcard button when you highlight text on a page. You can also right-click a highlight and choose “Create flashcard”.',
+        h('input', { type: 'checkbox', checked: s.selectionChip, onchange: (e) => save({ selectionChip: e.target.checked }) })
+      ),
+      row(
         'Grow cards automatically',
         `When you have answered every question on a card correctly, Claude adds up to 3 new ones on the same topic. Each time is one API request, at most ${MAX_GROWTHS} times per card.`,
         h('input', { type: 'checkbox', checked: s.autoGrow, onchange: (e) => save({ autoGrow: e.target.checked }) })

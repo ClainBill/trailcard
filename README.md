@@ -23,6 +23,7 @@ You're watching Pride & Prejudice and want to know who plays Elizabeth.
 
 - **Reads the trail, not just the page.** It records searches, pages visited, the text of links clicked, text copied and time on each page, so the card can capture a connection that spans several pages.
 - **Drafts multi-field cards with AI.** Claude proposes the fields, picks images (including ones from earlier pages in the trail) and writes one quiz question per fact.
+- **Makes cards from highlights.** Highlight any text on a page and a Flashcard button appears; one click drafts a card from that passage. Right-clicking a highlight does the same.
 - **Keeps you in control.** Nothing is saved until you have reviewed the draft. You can edit fields, swap images, rewrite questions, or describe what you wanted and have it redone.
 - **Quizzes from every direction.** Each review picks one of the card's questions at random, favouring ones you have missed.
 - **Schedules with FSRS.** Reviews are timed by FSRS-4.5, the algorithm behind current Anki, to a retention target you choose. You can also review ahead of schedule at any time.

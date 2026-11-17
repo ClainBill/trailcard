@@ -115,6 +115,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (!tab) return;
 
+  if (msg.type === 'create-from-selection') {
+    startFromSelection(tab, msg.text);
+    return;
+  }
+
   if (msg.type === 'link-click') {
     serial(async () => {
       const clicks = await session.get('clicks', {});
@@ -144,6 +149,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+// Opens the side panel and leaves the highlighted text for it to pick up.
+// sidePanel.open must run straight from the user's click, so nothing is awaited first.
+function startFromSelection(tab, text) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 1500);
+  if (clean) session.set('pending', { tabId: tab.id, text: clean, ts: Date.now() });
+  try {
+    chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
+  } catch {
+    /* the panel could not be opened from here; the highlight waits for it */
+  }
+}
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'tc-selection' && tab) startFromSelection(tab, info.selectionText);
+});
+
 async function updateBadge() {
   const now = Date.now();
   const due = (await getNotes()).filter((n) => n.srs.due <= now).length;
@@ -160,6 +181,9 @@ chrome.alarms.onAlarm.addListener((alarm) => alarm.name === 'badge' && updateBad
 function init() {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
   chrome.alarms.create('badge', { periodInMinutes: 15 });
+  chrome.contextMenus.removeAll(() =>
+    chrome.contextMenus.create({ id: 'tc-selection', title: 'Create flashcard from “%s”', contexts: ['selection'] })
+  );
   updateBadge();
 }
 
