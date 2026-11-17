@@ -6,6 +6,8 @@ Trailcard is a Chrome extension that turns your search trail into spaced-repetit
 
 **Website and live demo: https://trailcard.wcgill.com**
 
+**Source code: https://github.com/ClainBill/trailcard**
+
 The site has an interactive review you can try in the browser without installing anything, and a download of the extension.
 
 ## The idea in one example
