@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+.wrangler/
+.claude/
+
+# Packed copy of this repo for the hackathon upload
+Trailcard-Hackathon/
+Trailcard-Hackathon.zip

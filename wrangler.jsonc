@@ -1,0 +1,7 @@
+{
+  // Static showcase site for Trailcard, served from ./site
+  "name": "trailcard-site",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "./site" },
+  "routes": [{ "pattern": "trailcard.wcgill.com", "custom_domain": true }]
+}

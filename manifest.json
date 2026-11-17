@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Trailcard",
+  "version": "0.1.0",
+  "description": "Turn what you just looked up into spaced-repetition flashcards, built from your browsing trail.",
+  "permissions": ["storage", "unlimitedStorage", "tabs", "scripting", "sidePanel", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "Trailcard: create a flashcard" },
+  "side_panel": { "default_path": "panel.html" },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+F" },
+      "description": "Open Trailcard"
+    }
+  },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}
